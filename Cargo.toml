@@ -1,0 +1,13 @@
+[package]
+name = "stm32-serial-uploader"
+version = "0.1.0"
+authors = ["Karl Calden <33008330+kcalden@users.noreply.github.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+structopt = "0.3"
+xmodem = "0.1"
+serialport = "3.3"
+simple_logger = "1.6.0"
