@@ -118,7 +118,7 @@ fn main() -> std::io::Result<()> {
                     break;
                 }
             },
-            Err(e) => ()//eprintln!("{}", e)
+            Err(_e) => ()//eprintln!("{}", e)
         };
     }
     // Create XMODEM

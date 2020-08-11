@@ -11,3 +11,7 @@ structopt = "0.3"
 xmodem = "0.1"
 serialport = "3.3"
 simple_logger = "1.6.0"
+
+[profile.release]
+lto = true
+codegen-units = 1
