@@ -4,6 +4,7 @@ use xmodem::{Xmodem, BlockLength};
 use std::fs::{read_to_string};
 use std::io::Read;
 
+const BAUDRATE: u32 = 250000;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "STM32IAPUploader", about = "Uploader for IAP")]
@@ -13,92 +14,98 @@ struct Opt{
     port: String,
 
     /// Path to binary
-    #[structopt(short = "b", long)]
+    #[structopt(short = "f", long)]
     binary: String,
     
     /// Baud rate
-    #[structopt(short = "r", long)]
-    baudrate: u32,
+    // #[structopt(short = "r", long)]
+    // baudrate: u32,
     
     /// MCU Type
     #[structopt(short = "m", long)]
     mcu_type: String,
 }
+
 fn main() -> std::io::Result<()> {
     simple_logger::init().unwrap();
     let opt = Opt::from_args();
     println!("Uploading {}", opt.binary);
     println!("Targetting {} @ {}", opt.mcu_type, opt.port);
-    let s = SerialPortSettings {
-        baud_rate: opt.baudrate,
-        ..Default::default()
-    };
+
+    // Open serial port
     println!("Opening port");
     let mut port = open_with_settings(
         &opt.port,
         &SerialPortSettings {
-            baud_rate: opt.baudrate,
+            baud_rate: BAUDRATE,
             timeout: std::time::Duration::from_millis(0),
             ..Default::default()
         }
     )?;
+
+    // Open binary
     println!("Opening binary");
     let mut bin = std::fs::File::open(opt.binary)?;
     println!("{:?}", bin);
-    // TEST
-    // let mut ser_buf = [0u8];
-    // loop{
-    //     match port.read(&mut ser_buf) {
-    //         Ok(_) => print!("{}", ser_buf[0]),
-    //         _ => ()
-    //     };
-    // }
-    // Reset the MCU
-    println!("Resetting target MCU");
-    port.write_data_terminal_ready(true)?;
-    port.write_data_terminal_ready(false)?;
 
-    // Wait for BEL
-    let mut ser_buf = [0u8];
-    println!("Waiting for BEL from MCU");
-    loop{ 
-        match port.read(&mut ser_buf) {
-            Ok(_) => {
-                // Respond with ACK
-                if ser_buf[0] == 7 {
-                    println!("< {}", ser_buf[0]);
-                    println!("Received BEL, sending ACK");
-                    println!("> {}", 6u8);
+    let mut retries_left = 3;
+    let mut validation_success = false;
+    while retries_left > 0 && !validation_success {
+        // Reset the MCU
+        println!("Resetting target MCU");
+        port.write_data_terminal_ready(true)?;
+        port.write_data_terminal_ready(false)?;
+
+        // Wait for BEL
+        let mut ser_buf = [0u8];
+        println!("Waiting for BEL from MCU");
+        loop{ 
+            match port.read(&mut ser_buf) {
+                Ok(_) => {
+                    // Respond with ACK
+                    if ser_buf[0] == 7 {
+                        println!("< {}", ser_buf[0]);
+                        println!("Received BEL, sending ACK");
+                        println!("> {}", 6u8);
+                        port.write(&[6u8])?;
+                        break;
+                    }
+                },
+                _ => ()
+            };
+        }
+        
+        println!("Waiting for MCU type");
+        let mut ser_buf: [u8; 6] = Default::default();
+        loop{ 
+            match port.read(&mut ser_buf) {
+                Ok(_) => {
+                    let mcu_type = String::from_utf8_lossy(&ser_buf);
+                    println!("{:?}", ser_buf);
+                    // Throw error for non matching MCU type and write NAK to serial
+                    if mcu_type.ne(&opt.mcu_type) {
+                        eprintln!("Incorrect MCU target! {} != {}", mcu_type, opt.mcu_type);
+                        eprintln!("Retries left: {}", retries_left);
+                        port.write(&[0x15u8])?;
+                        // std::process::exit(-1)
+                    }
+                    // Write ACK
                     port.write(&[6u8])?;
-                    // std::thread::sleep_ms(100);
+                    println!("< {}", mcu_type);
+                    println!("Correct MCU target {}, sending ACK", opt.mcu_type);
+                    println!("> {}", 6u8);
+                    validation_success = true;
                     break;
-                }
-            },
-            _ => ()
-        };
-    }    
-    println!("Waiting for MCU type");
-    let mut ser_buf: [u8; 6] = Default::default();
-    loop{ 
-        match port.read(&mut ser_buf) {
-            Ok(_) => {
-                let mcu_type = String::from_utf8_lossy(&ser_buf);
-                println!("{:?}", ser_buf);
-                // Throw error for non matching MCU type and write NAK to serial
-                if mcu_type.ne(&opt.mcu_type) {
-                    eprintln!("Incorrect MCU target! {} != {}", mcu_type, opt.mcu_type);
-                    port.write(&[0x15u8])?;
-                    std::process::exit(-1)
-                }
-                // Write ACK
-                port.write(&[6u8])?;
-                println!("< {}", mcu_type);
-                println!("Correct MCU target {}, sending ACK", opt.mcu_type);
-                println!("> {}", 6u8);
-                break;
-            },
-            _ => ()
-        };
+                },
+                _ => ()
+            };
+        }
+        if validation_success { break; }
+        retries_left -= 1;
+    }
+    if !validation_success {
+        eprint!("MCU validation fail.");
+        std::process::exit(0);
     }
 
     let mut ser_buf = [0u8];
