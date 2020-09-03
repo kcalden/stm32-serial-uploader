@@ -38,7 +38,7 @@ fn main() -> std::io::Result<()> {
         &opt.port,
         &SerialPortSettings {
             baud_rate: BAUDRATE,
-            timeout: std::time::Duration::from_millis(0),
+            timeout: std::time::Duration::from_secs(10),
             ..Default::default()
         }
     )?;
@@ -123,6 +123,7 @@ fn main() -> std::io::Result<()> {
     }
     // Create XMODEM
     let mut xm = Xmodem::new();
+    xm.max_errors = 6;
     // xm.block_length = BlockLength::OneK;
     match xm.send( &mut port, &mut bin ) {
         Ok(_) => println!("Flashing complete"),
