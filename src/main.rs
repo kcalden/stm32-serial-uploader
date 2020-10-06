@@ -5,7 +5,7 @@ use std::fs::{read_to_string};
 use std::io::Read;
 
 const BAUDRATE: u32 = 250000;
-const DTR_TOGGLES: u32 = 5;
+// const DTR_TOGGLES: u32 = 2;
 #[derive(Debug, StructOpt)]
 #[structopt(name = "STM32IAPUploader", about = "Uploader for IAP")]
 struct Opt{ 
@@ -38,7 +38,7 @@ fn main() -> std::io::Result<()> {
         &opt.port,
         &SerialPortSettings {
             baud_rate: BAUDRATE,
-            timeout: std::time::Duration::from_secs(10),
+            timeout: std::time::Duration::from_secs(1),
             ..Default::default()
         }
     )?;
@@ -53,16 +53,18 @@ fn main() -> std::io::Result<()> {
     while retries_left > 0 && !validation_success {
         // Reset the MCU
         println!("Resetting target MCU");
-        for _i in 1..DTR_TOGGLES {
-            port.write_data_terminal_ready(true)?;
-            port.write_data_terminal_ready(false)?;
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
-
+        // for _i in 1..DTR_TOGGLES {
+        //     std::thread::sleep(std::time::Duration::from_millis(100));
+        //     port.write_data_terminal_ready(false)?;
+        //     port.write_data_terminal_ready(true)?;
+        // }
+        
         // Wait for BEL
         let mut ser_buf = [0u8];
         println!("Waiting for BEL from MCU");
         loop{ 
+            port.write_data_terminal_ready(true)?;
+            port.write_data_terminal_ready(false)?;
             match port.read(&mut ser_buf) {
                 Ok(_) => {
                     // Respond with ACK
@@ -74,10 +76,11 @@ fn main() -> std::io::Result<()> {
                         break;
                     }
                 },
-                _ => ()
+                Err(e) => eprintln!("{}",e)
             };
         }
         
+        // Check MCU type
         println!("Waiting for MCU type");
         let mut ser_buf: [u8; 6] = Default::default();
         loop{ 
@@ -91,16 +94,17 @@ fn main() -> std::io::Result<()> {
                         eprintln!("Retries left: {}", retries_left);
                         port.write(&[0x15u8])?;
                         // std::process::exit(-1)
+                    }else{
+                        // Write ACK
+                        port.write(&[6u8])?;
+                        println!("< {}", mcu_type);
+                        println!("Correct MCU target {}, sending ACK", opt.mcu_type);
+                        println!("> {}", 6u8);
+                        validation_success = true;
+                        break;
                     }
-                    // Write ACK
-                    port.write(&[6u8])?;
-                    println!("< {}", mcu_type);
-                    println!("Correct MCU target {}, sending ACK", opt.mcu_type);
-                    println!("> {}", 6u8);
-                    validation_success = true;
-                    break;
                 },
-                _ => ()
+                Err(e) => eprintln!("{}", e)
             };
         }
         if validation_success { break; }
@@ -111,8 +115,10 @@ fn main() -> std::io::Result<()> {
         std::process::exit(0);
     }
 
+    // Wait for XMODEM transfer
+    // This will error a few times. At this point the processor is clearing it's flash memory
     let mut ser_buf = [0u8];
-    println!("Waiting for MCU...");
+    println!("Waiting for MCU to clear...");
     loop{ 
         match port.read(&mut ser_buf) {
             Ok(_) => {
@@ -121,7 +127,7 @@ fn main() -> std::io::Result<()> {
                     break;
                 }
             },
-            Err(_e) => ()//eprintln!("{}", e)
+            Err(_e) =>  ()// eprintln!("{}", e)
         };
     }
     // Create XMODEM
