@@ -5,7 +5,7 @@ use std::fs::{read_to_string};
 use std::io::Read;
 
 const BAUDRATE: u32 = 250000;
-
+const DTR_TOGGLES: u32 = 5;
 #[derive(Debug, StructOpt)]
 #[structopt(name = "STM32IAPUploader", about = "Uploader for IAP")]
 struct Opt{ 
@@ -53,8 +53,11 @@ fn main() -> std::io::Result<()> {
     while retries_left > 0 && !validation_success {
         // Reset the MCU
         println!("Resetting target MCU");
-        port.write_data_terminal_ready(true)?;
-        port.write_data_terminal_ready(false)?;
+        for _i in 1..DTR_TOGGLES {
+            port.write_data_terminal_ready(true)?;
+            port.write_data_terminal_ready(false)?;
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
 
         // Wait for BEL
         let mut ser_buf = [0u8];
